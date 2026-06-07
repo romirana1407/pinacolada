@@ -1,0 +1,28 @@
+<!doctype html>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Hotel WiFi</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:Georgia,serif;margin:0;min-height:100vh;background:#f8f5f0;display:flex;align-items:center;justify-content:center;padding:20px}
+.box{background:#fff;border-radius:4px;padding:40px 32px;width:100%;max-width:420px;box-shadow:0 2px 20px #0001;text-align:center;border-top:4px solid #c9a96e}
+h1{font-size:28px;color:#2c2c2c;margin:0 0 4px;font-weight:400;letter-spacing:1px}
+.sub{color:#c9a96e;font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-bottom:28px}
+label{display:block;text-align:left;font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;margin-top:14px;font-family:sans-serif}
+input{display:block;width:100%;padding:12px;border:1px solid #ddd;border-radius:2px;font-size:15px;outline:none;font-family:sans-serif;background:#fafafa}
+input:focus{border-color:#c9a96e;background:#fff}
+button{width:100%;padding:14px;background:#2c2c2c;color:#fff;border:0;font-size:14px;font-weight:600;cursor:pointer;margin-top:24px;letter-spacing:1px;text-transform:uppercase;font-family:sans-serif}
+button:hover{background:#c9a96e}
+.footer{font-size:11px;color:#aaa;margin-top:20px;font-family:sans-serif}
+</style>
+<div class=box>
+<h1>Grand Palace</h1>
+<div class=sub>Hotel &amp; Spa &mdash; WiFi Acceso</div>
+<form method=POST action=/login>
+<label>N&uacute;mero de habitaci&oacute;n</label>
+<input name=room placeholder="Ej: 204" type=text required>
+<label>Apellido del hu&eacute;sped</label>
+<input name=lastname placeholder="Apellido" type=text required>
+<button type=submit>Acceder a internet</button>
+</form>
+<p class=footer>Conexi&oacute;n v&aacute;lida durante su estancia &middot; Soporte: recepci&oacute;n ext. 0</p>
+</div>

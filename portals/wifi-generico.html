@@ -1,0 +1,27 @@
+<!doctype html>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>WiFi Login</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:sans-serif;margin:0;min-height:100vh;background:linear-gradient(135deg,#1a73e8,#0d47a1);display:flex;align-items:center;justify-content:center;padding:20px}
+.box{background:#fff;border-radius:16px;padding:36px 28px;width:100%;max-width:380px;box-shadow:0 8px 40px #0004;text-align:center}
+.logo{font-size:42px;margin-bottom:10px}
+h2{margin:0 0 6px;color:#1a1a1a;font-size:22px}
+p{color:#666;font-size:14px;margin:0 0 24px}
+input{display:block;width:100%;padding:13px;margin:10px 0;border:1.5px solid #e0e0e0;border-radius:8px;font-size:15px;outline:none;transition:border .2s}
+input:focus{border-color:#1a73e8}
+button{width:100%;padding:14px;background:#1a73e8;color:#fff;border:0;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;margin-top:4px;transition:background .2s}
+button:hover{background:#1557b0}
+.terms{font-size:11px;color:#999;margin-top:16px}
+</style>
+<div class=box>
+<div class=logo>&#127760;</div>
+<h2>Acceso WiFi gratuito</h2>
+<p>Inicia sesi&oacute;n para conectarte a internet</p>
+<form method=POST action=/login>
+<input name=email placeholder="Correo electr&oacute;nico" type=email required>
+<input name=password placeholder="Contrase&ntilde;a" type=password required>
+<button type=submit>Conectar</button>
+</form>
+<p class=terms>Al conectarte aceptas los t&eacute;rminos de uso de la red.</p>
+</div>
