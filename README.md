@@ -2,6 +2,8 @@
 
 A portable WiFi security lab in a Raspberry Pi. Open-source alternative to the WiFi Pineapple — web UI included, zero proprietary hardware required.
 
+![Dashboard screenshot](docs/screenshot.png)
+
 ---
 
 ## What it does
