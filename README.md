@@ -48,7 +48,7 @@ The built-in Pi WiFi (`wlan0`) is used as the rogue AP. The USB adapter (`wlan1`
 ## Quick install
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USER/pinacola.git
+git clone https://github.com/romirana1407/pinacolada.git
 cd pinacola
 sudo bash install.sh
 ```
