@@ -192,9 +192,19 @@ def k_count():
     d = kapi("/system/status.json")
     return d.get("kismet.system.devices.count", "?") if isinstance(d, dict) else "?"
 
+_cpu_prev = None
 def sys_stats():
+    global _cpu_prev
     try:
-        cpu = min(100, round(os.getloadavg()[0] / 4 * 100, 1))
+        line = open("/proc/stat").readline()
+        vals = [int(x) for x in line.split()[1:]]
+        idle = vals[3]; total = sum(vals)
+        if _cpu_prev:
+            d_idle = idle - _cpu_prev[0]; d_total = total - _cpu_prev[1]
+            cpu = min(100, round((1 - d_idle / max(d_total, 1)) * 100, 1))
+        else:
+            cpu = 0
+        _cpu_prev = (idle, total)
     except Exception:
         cpu = 0
     try:
@@ -206,7 +216,12 @@ def sys_stats():
                     mem["MemTotal"] * 100, 1)
     except Exception:
         ram = 0
-    uptime = sh("uptime -p").replace("up ", "")
+    try:
+        secs = int(float(open("/proc/uptime").read().split()[0]))
+        h, r = divmod(secs, 3600); m = r // 60
+        uptime = (str(h) + "h " + str(m) + "m") if h else (str(m) + "m")
+    except Exception:
+        uptime = "?"
     return cpu, ram, uptime
 
 def parse_scan():

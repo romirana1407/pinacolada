@@ -41,6 +41,7 @@ sleep 0.5
 ip link set wlan1 down 2>/dev/null
 iw dev wlan1 set type monitor 2>/dev/null
 ip link set wlan1 up 2>/dev/null
+sleep 1.0
 # Force 2.4GHz channel before mdk4 (RTL8811CU defaults to 5GHz after Kismet)
 iw dev wlan1 set channel 6 2>/dev/null
 sleep 0.3
@@ -51,5 +52,5 @@ if ! command -v mdk4 >/dev/null 2>&1; then
     exit 1
 fi
 
-# Spam: beacon mode, SSID file, 500 packets/s, random channels
-mdk4 wlan1 b -f "$SSID_FILE" -s 500 -c 1,6,11
+# Spam: beacon mode, SSID file, 100 packets/s, channel 6 (RTL8811CU no soporta channel hopping)
+mdk4 wlan1 b -f "$SSID_FILE" -s 100 -c 6
