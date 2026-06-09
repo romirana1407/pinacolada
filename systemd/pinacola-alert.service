@@ -1,0 +1,13 @@
+[Unit]
+Description=Piña Colada Kismet Alert Watchdog
+After=network.target kismet-sensor.service
+
+[Service]
+EnvironmentFile=-/opt/pinacola/.env
+ExecStart=/usr/bin/python3 /opt/pinacola/alert-notify.py
+WorkingDirectory=/opt/pinacola
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

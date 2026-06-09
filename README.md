@@ -123,6 +123,21 @@ Portal      → captive portal template editor, credential log
 3. Click **Activate portal** — DNS on the rogue AP is redirected to the Pi, portal-server serves your page on port 80
 4. Any client that opens a browser sees your portal; form submissions are logged in real time
 
+### Push alerts (defensive watchdog)
+
+`alert-notify.py` polls Kismet and pushes a phone notification (via [ntfy.sh](https://ntfy.sh))
+when it sees a deauth flood, rogue/spoofed AP, or suspicious probe — so the rig watches
+your own network even when no browser is open.
+
+```bash
+cp .env.example .env          # then set NTFY_TOPIC to a private, unguessable value
+sudo cp .env /opt/pinacola/.env
+sudo cp systemd/pinacola-alert.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now pinacola-alert
+```
+
+Subscribe to the same topic in the ntfy mobile app to receive the alerts.
+
 ---
 
 ## Built-in portal templates

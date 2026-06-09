@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import urllib.request, base64, json, re, time, os
 KCONF="/root/.kismet/kismet_httpd.conf"
-TOPIC="pineapple-express-sj-9f3a2c"
+TOPIC=os.environ.get("NTFY_TOPIC","").strip()
 STATE="/opt/pinacola/.alert-last"
 NOTIFY_CLASSES={"DENIAL","SPOOF","PROBE","CRYPTO"}
+if not TOPIC:
+    raise SystemExit("NTFY_TOPIC not set (see .env.example) — refusing to start.")
 def kcreds():
     u=p=""
     if os.path.exists(KCONF):
