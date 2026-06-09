@@ -50,6 +50,14 @@ class H(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         return False
 
+    def _same_origin(self) -> bool:
+        """CSRF guard: a state-changing POST must come from our own page.
+        Verified by Origin (preferred) or Referer host matching the Host header —
+        a cross-site form/fetch carries the attacker's origin and is rejected."""
+        host = self.headers.get("Host", "")
+        src = self.headers.get("Origin") or self.headers.get("Referer") or ""
+        return bool(host) and urllib.parse.urlsplit(src).netloc == host
+
     def _send(self, body: bytes, ct: str = "text/html; charset=utf-8", code: int = 200):
         self.send_response(code)
         self.send_header("Content-Type", ct)
@@ -90,6 +98,9 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self._auth():
+            return
+        if not self._same_origin():
+            self._send(b"", "text/plain", 403)
             return
         try:
             n = int(self.headers.get("Content-Length", "0") or 0)
