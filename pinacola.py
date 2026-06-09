@@ -1,5 +1,5 @@
 """Piña Colada — entry point and HTTP handler."""
-import http.server, hashlib, secrets, os, json, re, shlex, urllib.parse
+import http.server, hashlib, hmac, secrets, os, json, re, shlex, urllib.parse
 from config import *
 from engine import (
     sh, ap_start, portal_on, portal_off, set_eviltwin, set_normal_ap,
@@ -31,7 +31,7 @@ def _check_auth(headers) -> bool:
         raw = base64.b64decode(auth[6:]).decode("utf-8", "replace")
         _, pwd = raw.split(":", 1)
         stored = open(AUTH_FILE).read().strip()
-        return hashlib.sha256(pwd.encode()).hexdigest() == stored
+        return hmac.compare_digest(hashlib.sha256(pwd.encode()).hexdigest(), stored)
     except Exception:
         return False
 
@@ -69,8 +69,9 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == "/manifest.webmanifest":
             self._send(MANIFEST.encode(), "application/manifest+json")
         elif p == "/logo.png" or (p.startswith("/icon-") and p.endswith(".png")):
+            fname = os.path.basename(p)  # strip any traversal; serve only from BASE
             try:
-                body = open(BASE + p, "rb").read()
+                body = open(os.path.join(BASE, fname), "rb").read()
             except Exception:
                 body = b""
             self._send(body, "image/png")
@@ -90,7 +91,10 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._auth():
             return
-        n = int(self.headers.get("Content-Length", "0") or 0)
+        try:
+            n = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            n = 0
         body = self.rfile.read(n).decode("utf-8", "replace") if n else ""
         q = urllib.parse.parse_qs(body)
         p = self.path
@@ -161,7 +165,8 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == "/deauth":
             bssid = q.get("bssid", [""])[0]
             ch = q.get("ch", [DEF_CH])[0]
-            if re.match(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$", bssid) and ch.isdigit():
+            if (re.match(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$", bssid)
+                    and ch.isdigit() and 1 <= int(ch) <= 13):
                 deauth(bssid, ch)
 
         # ── BLE / Beacon ──
