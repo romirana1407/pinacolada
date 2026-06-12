@@ -18,9 +18,9 @@ echo ""
 # ── Root check ──────────────────────────────────────────────
 [ "$EUID" -eq 0 ] || die "Run as root: sudo bash install.sh"
 
-# ── Detect interfaces ────────────────────────────────────────
-AP_IF="wlan0"
-MON_IF="wlan1"
+# ── Interfaces (override: AP_IF=... MON_IF=... sudo -E bash install.sh) ───────
+AP_IF="${AP_IF:-wlan0}"
+MON_IF="${MON_IF:-wlan1}"
 
 info "Detected interfaces:"
 ip -br link show type ether 2>/dev/null || true
@@ -76,6 +76,12 @@ shopt -u nullglob
 
 # Copy portal templates
 [ -d portals ] && cp portals/*.html "${DEST}/portals/" 2>/dev/null || true
+
+# Persist interface names so the dashboard + scripts pick them up at runtime.
+# (config.py / the .sh scripts read AP_IF / MON_IF from here; default wlan0/wlan1)
+touch "${DEST}/.env"
+grep -q '^AP_IF='  "${DEST}/.env" || echo "AP_IF=${AP_IF}"   >> "${DEST}/.env"
+grep -q '^MON_IF=' "${DEST}/.env" || echo "MON_IF=${MON_IF}" >> "${DEST}/.env"
 
 # ── Rename / compat symlink ───────────────────────────────────
 # wifitest.sh and beacon-spam.sh reference paths — keep them consistent
@@ -174,6 +180,7 @@ Description=Piña Colada Dashboard
 After=network.target
 
 [Service]
+EnvironmentFile=-${DEST}/.env
 ExecStart=/usr/bin/python3 ${DEST}/pinacola.py
 WorkingDirectory=${DEST}
 Restart=always
@@ -192,8 +199,9 @@ systemctl restart pinacola
 
 # ── Get Pi IP ─────────────────────────────────────────────────
 IP=$(ip -4 addr show eth0 2>/dev/null | grep -oP '(?<=inet )[^/]+' | head -1)
-[ -z "$IP" ] && IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet )[^/]+' | head -1)
-[ -z "$IP" ] && IP="<pi-ip>"
+[ -z "$IP" ] && IP=$(ip -4 addr show ${AP_IF} 2>/dev/null | grep -oP '(?<=inet )[^/]+' | head -1)
+[ -z "$IP" ] && IP=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oP '(?<=src )[^ ]+' | head -1)
+[ -z "$IP" ] && IP="<host-ip>"
 
 echo ""
 echo -e "${GRN}  ✓ Piña Colada installed successfully!${NC}"

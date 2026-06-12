@@ -1,10 +1,14 @@
 #!/bin/bash
+DIR="${DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+[ -f "$DIR/.env" ] && . "$DIR/.env"
+AP_IF="${AP_IF:-wlan0}"
+MON_IF="${MON_IF:-wlan1}"
 # Esnifa a que destinos habla el target (el device MITM) y lo escribe al feed.
 # Muestra DNS en claro (puerto 53) SI lo hay + las IPs destino con reverse-DNS de los
 # SYN salientes -> funciona aunque el target use DNS cifrado (DoT/DoH), que es lo
-# normal en moviles modernos. tcpdump NO cambia el modo de wlan1 (tshark si lo flipa).
+# normal en moviles modernos. tcpdump NO cambia el modo de $MON_IF (tshark si lo flipa).
 # Uso: mitm-sniff.sh <target_ip> <feed_file>
-T="$1"; FEED="$2"; IF=wlan1
+T="$1"; FEED="$2"; IF=$MON_IF
 [ -z "$T" ] && exit 1
 declare -A SEEN
 emit(){ echo "[$(date +%H:%M:%S)] $1" >> "$FEED"; tail -200 "$FEED" > "$FEED.tmp" 2>/dev/null && mv "$FEED.tmp" "$FEED"; }

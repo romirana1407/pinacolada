@@ -1,13 +1,17 @@
 #!/bin/bash
+DIR="${DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+[ -f "$DIR/.env" ] && . "$DIR/.env"
+AP_IF="${AP_IF:-wlan0}"
+MON_IF="${MON_IF:-wlan1}"
 # Pineapple Express - Rogue AP monitor.
-# El Pi YA es el AP (wlan0). Da internet a los clientes (NAT wlan0 -> eth0) y esnifa
+# El Pi YA es el AP ($AP_IF). Da internet a los clientes (NAT $AP_IF -> eth0) y esnifa
 # su DNS / TLS-SNI / QUIC-SNI. El Pi es el gateway, asi que ve TODO sin asociarse a
-# nada ni hacer ARP spoof. NO usa wlan1 (Kismet sigue corriendo).
+# nada ni hacer ARP spoof. NO usa $MON_IF (Kismet sigue corriendo).
 # USE ONLY on your own AP / authorized clients.
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FEED="$DIR/mitm-feed.log"
 STATE="$DIR/mitm-attack.state"
-AP_IF=wlan0
+AP_IF=$AP_IF
 UP_IF=eth0
 AP_NET=192.168.66.0/24
 
@@ -39,7 +43,7 @@ log "Rogue AP activo: $AP_IF -> NAT por $UP_IF | $NCLI cliente(s) asociado(s)."
 log "Esnifando DNS / TLS-SNI / QUIC-SNI de los clientes..."
 echo "running" > "$STATE"
 
-# 2) Sniff en wlan0. El Pi es el gateway -> ve el trafico en claro de los clientes.
+# 2) Sniff en $AP_IF. El Pi es el gateway -> ve el trafico en claro de los clientes.
 #    Una linea por paquete; solo uno de los 3 campos de nombre viene relleno.
 tshark -i "$AP_IF" -l -Q \
   -Y "dns.flags.response==0 || tls.handshake.type==1 || quic.tls.handshake.extensions_server_name" \

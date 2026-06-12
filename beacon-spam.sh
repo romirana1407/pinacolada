@@ -1,6 +1,10 @@
 #!/bin/bash
+DIR="${DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+[ -f "$DIR/.env" ] && . "$DIR/.env"
+AP_IF="${AP_IF:-wlan0}"
+MON_IF="${MON_IF:-wlan1}"
 # Pineapple Express - Beacon Spam via mdk4
-# Floods the air with fake SSIDs on wlan1 (monitor mode)
+# Floods the air with fake SSIDs on $MON_IF (monitor mode)
 # USE ONLY in authorized environments / your own airspace.
 trap 'systemctl start kismet-sensor.service 2>/dev/null; exit' EXIT INT TERM
 
@@ -33,17 +37,17 @@ for i in $(seq 1 30); do
     printf "WiFi_%04d\n" $RANDOM >> "$SSID_FILE"
 done
 
-# Stop Kismet and put wlan1 in monitor mode
+# Stop Kismet and put $MON_IF in monitor mode
 systemctl stop kismet-sensor.service 2>/dev/null
 pkill -9 -f kismet_cap_linux_wifi 2>/dev/null
 sleep 0.5
 
-ip link set wlan1 down 2>/dev/null
-iw dev wlan1 set type monitor 2>/dev/null
-ip link set wlan1 up 2>/dev/null
+ip link set $MON_IF down 2>/dev/null
+iw dev $MON_IF set type monitor 2>/dev/null
+ip link set $MON_IF up 2>/dev/null
 sleep 1.0
 # Force 2.4GHz channel before mdk4 (RTL8811CU defaults to 5GHz after Kismet)
-iw dev wlan1 set channel 6 2>/dev/null
+iw dev $MON_IF set channel 6 2>/dev/null
 sleep 0.3
 
 # Check mdk4 available
@@ -53,4 +57,4 @@ if ! command -v mdk4 >/dev/null 2>&1; then
 fi
 
 # Spam: beacon mode, SSID file, 100 packets/s, channel 6 (RTL8811CU no soporta channel hopping)
-mdk4 wlan1 b -f "$SSID_FILE" -s 100 -c 6
+mdk4 $MON_IF b -f "$SSID_FILE" -s 100 -c 6

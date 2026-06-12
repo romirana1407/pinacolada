@@ -1,4 +1,8 @@
 #!/bin/bash
+DIR="${DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+[ -f "$DIR/.env" ] && . "$DIR/.env"
+AP_IF="${AP_IF:-wlan0}"
+MON_IF="${MON_IF:-wlan1}"
 # Pineapple AP NAT — re-apply after Docker has set up its iptables at boot.
 # Docker sets FORWARD policy to DROP and reorders iptables on daemon start,
 # wiping the rogue-AP NAT. This oneshot (ordered After=docker.service) puts it
@@ -7,7 +11,7 @@ set +e
 
 AP_SUBNET="192.168.66.0/24"
 LAN_IF="eth0"
-AP_IF="wlan0"
+AP_IF="$AP_IF"
 
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
 
