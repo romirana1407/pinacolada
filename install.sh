@@ -3,6 +3,7 @@
 # Run as root: sudo bash install.sh
 
 set -e
+export DEBIAN_FRONTEND=noninteractive
 
 RED='\033[0;31m'; YEL='\033[1;33m'; GRN='\033[0;32m'; NC='\033[0m'
 info(){ echo -e "${GRN}[+]${NC} $*"; }
@@ -32,6 +33,8 @@ echo ""
 # ── Dependencies ─────────────────────────────────────────────
 info "Installing system dependencies..."
 apt-get update -qq
+# tshark asks (debconf) whether non-root users may capture — preseed "no" to avoid a hang
+echo "wireshark-common wireshark-common/install-setuid boolean false" | debconf-set-selections 2>/dev/null || true
 apt-get install -y --no-install-recommends \
   aircrack-ng \
   hcxdumptool \
@@ -42,7 +45,10 @@ apt-get install -y --no-install-recommends \
   dnsmasq \
   python3 \
   iw \
-  iptables 2>&1 | grep -E "^(Get|Setting|Unpacking|Selecting)" || true
+  iptables \
+  tcpdump \
+  tshark \
+  dsniff 2>&1 | grep -E "^(Get|Setting|Unpacking|Selecting)" || true
 
 # Kismet is optional (IDS tab) — don't fail if unavailable
 apt-get install -y --no-install-recommends kismet 2>/dev/null \
@@ -55,15 +61,18 @@ python3 -m pip install --quiet bleak 2>/dev/null \
   || warn "bleak not installed — BLE fallback to hcitool lescan"
 
 # ── Install files ─────────────────────────────────────────────
-DEST=/opt/pinacola
+DEST=${PINACOLA_HOME:-/opt/pinacola}
 info "Installing to ${DEST}..."
 mkdir -p "${DEST}/portals" "${DEST}/conf"
 
-# Copy main files
-for f in pinacola.py portal-server.py ble-scan.py wifitest.sh beacon-spam.sh \
-          mitm-attack.sh mitm-monitor.sh dnsfeed.sh alert-notify.py ap-up.sh; do
-  [ -f "$f" ] && cp "$f" "${DEST}/" || warn "Missing: $f"
+# Copy ALL dashboard modules + scripts.
+# pinacola.py imports config.py / engine.py / ui.py — they must all land in DEST,
+# or the dashboard crashes with ModuleNotFoundError on first start.
+shopt -s nullglob
+for f in *.py *.sh; do
+  cp "$f" "${DEST}/"
 done
+shopt -u nullglob
 
 # Copy portal templates
 [ -d portals ] && cp portals/*.html "${DEST}/portals/" 2>/dev/null || true
@@ -117,16 +126,25 @@ CONF
 # Active config starts as normal
 cp /etc/pinacola-dnsmasq-normal.conf /etc/pinacola-dnsmasq.conf
 
-# ── AP static IP ──────────────────────────────────────────────
+# ── AP static IP (Pi → dhcpcd; laptop/Kali → NetworkManager) ─────────────────
+# The AP systemd service also sets 192.168.66.1/24 in ExecStartPre, so this step
+# only needs to stop the host's network manager from fighting hostapd over ${AP_IF}.
 info "Configuring AP interface static IP..."
-if ! grep -q "pinacola" /etc/dhcpcd.conf 2>/dev/null; then
-  cat >> /etc/dhcpcd.conf << CONF
+if [ -f /etc/dhcpcd.conf ]; then
+  if ! grep -q "pinacola" /etc/dhcpcd.conf 2>/dev/null; then
+    cat >> /etc/dhcpcd.conf << CONF
 
 # Piña Colada AP interface
 interface ${AP_IF}
 static ip_address=192.168.66.1/24
 nohook wpa_supplicant
 CONF
+  fi
+elif command -v nmcli >/dev/null 2>&1; then
+  warn "NetworkManager detected — telling it to stop managing ${AP_IF}"
+  nmcli device set "${AP_IF}" managed no 2>/dev/null || true
+else
+  warn "No dhcpcd or NetworkManager found — the AP service will set the static IP itself"
 fi
 
 # ── AP systemd service ────────────────────────────────────────
@@ -156,8 +174,8 @@ Description=Piña Colada Dashboard
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/pinacola/pinacola.py
-WorkingDirectory=/opt/pinacola
+ExecStart=/usr/bin/python3 ${DEST}/pinacola.py
+WorkingDirectory=${DEST}
 Restart=always
 RestartSec=3
 

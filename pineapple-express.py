@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import http.server, subprocess, os, html, urllib.parse, urllib.request, base64, json, re
 
-BASE="/opt/pineapple"; CRED=BASE+"/captured-creds.log"; PORTAL=BASE+"/portal-server.py"
+BASE=os.environ.get("PINACOLA_HOME") or os.path.dirname(os.path.abspath(__file__)); CRED=BASE+"/captured-creds.log"; PORTAL=BASE+"/portal-server.py"
 FEED=BASE+"/dns-feed.log"; WTRESULT=BASE+"/wifitest.result"; MITMFEED=BASE+"/mitm-feed.log"
 MITMREADY=BASE+"/mitm-ready"; MITMSTATE=BASE+"/mitm-attack.state"; MITMATTACK=BASE+"/mitm-attack.sh"
 BLESCAN=BASE+"/ble-scan.json"; BLESTATE=BASE+"/ble-scan.state"; BLEPY=BASE+"/ble-scan.py"
@@ -984,7 +984,7 @@ class H(http.server.BaseHTTPRequestHandler):
             b2=q.get("bssid",[""])[0].strip(); c2=q.get("ch",[""])[0].strip()
             if b2 and not re.match(r"^[0-9A-Fa-f:]{17}$",b2): b2=""
             if not c2.isdigit(): c2=""
-            sh("nohup bash /opt/pineapple/wifitest.sh '%s' '%s' >/dev/null 2>&1 &"%(b2,c2))
+            sh("nohup bash %s/wifitest.sh '%s' '%s' >/dev/null 2>&1 &"%(BASE,b2,c2))
         elif p=="/mitmattack":
             sh("nohup bash "+MITMATTACK+" >/dev/null 2>&1 &")
         elif p=="/mitmattack_stop":

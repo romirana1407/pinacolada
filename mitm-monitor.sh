@@ -1,6 +1,7 @@
 #!/bin/bash
 # Pineapple Express - MITM monitor: logs HTTPS destinations (TLS SNI) of clients on the rogue AP.
-FEED=/opt/pineapple/mitm-feed.log
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FEED="$DIR/mitm-feed.log"
 : > "$FEED"
 tshark -i wlan0 -l -Y "tls.handshake.type==1" -T fields -e ip.src -e tls.handshake.extensions_server_name 2>/dev/null | while read -r src sni; do
   [ -z "$sni" ] && continue

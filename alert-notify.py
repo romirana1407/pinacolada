@@ -4,7 +4,7 @@ KCONF="/root/.kismet/kismet_httpd.conf"
 TOPIC=os.environ.get("NTFY_TOPIC","").strip()
 if not TOPIC:
     raise SystemExit("NTFY_TOPIC not set (see .env.example) — refusing to start.")
-STATE="/opt/pineapple/.alert-last"
+STATE=os.path.join(os.path.dirname(os.path.abspath(__file__)),".alert-last")
 NOTIFY_CLASSES={"DENIAL","SPOOF","PROBE","CRYPTO"}
 def kcreds():
     u=p=""

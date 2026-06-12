@@ -4,8 +4,9 @@
 # su DNS / TLS-SNI / QUIC-SNI. El Pi es el gateway, asi que ve TODO sin asociarse a
 # nada ni hacer ARP spoof. NO usa wlan1 (Kismet sigue corriendo).
 # USE ONLY on your own AP / authorized clients.
-FEED=/opt/pineapple/mitm-feed.log
-STATE=/opt/pineapple/mitm-attack.state
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FEED="$DIR/mitm-feed.log"
+STATE="$DIR/mitm-attack.state"
 AP_IF=wlan0
 UP_IF=eth0
 AP_NET=192.168.66.0/24

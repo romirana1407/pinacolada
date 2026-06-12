@@ -1,5 +1,6 @@
 #!/bin/bash
-FEED=/opt/pineapple/dns-feed.log
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FEED="$DIR/dns-feed.log"
 : > "$FEED"
 stdbuf -oL tcpdump -i wlan0 -nn -l udp port 53 2>/dev/null | while read -r line; do
   case "$line" in *" A? "*|*" AAAA? "*) ;; *) continue ;; esac

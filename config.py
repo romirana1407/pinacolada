@@ -1,6 +1,6 @@
 import os
 
-BASE    = "/opt/pinacola"
+BASE    = os.environ.get("PINACOLA_HOME") or os.path.dirname(os.path.abspath(__file__))
 CRED    = BASE + "/captured-creds.log"
 PORTAL  = BASE + "/portal-server.py"
 FEED    = BASE + "/dns-feed.log"
