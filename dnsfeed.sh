@@ -1,5 +1,5 @@
 #!/bin/bash
-FEED=/opt/pinacola/dns-feed.log
+FEED=/opt/pineapple/dns-feed.log
 : > "$FEED"
 stdbuf -oL tcpdump -i wlan0 -nn -l udp port 53 2>/dev/null | while read -r line; do
   case "$line" in *" A? "*|*" AAAA? "*) ;; *) continue ;; esac

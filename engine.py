@@ -1,6 +1,11 @@
 """System interaction layer — all subprocess calls live here."""
-import subprocess, os, json, re, shutil, urllib.request, base64
+import subprocess, os, json, re, shutil, urllib.request, urllib.parse, base64
 from config import *
+
+# Crack-agent (corre en el portatil que tiene la GPU). Modelo PULL: la Pi no puede
+# iniciar conexiones al portatil (sin sshd + su firewall dropea inbound), asi que el
+# panel solo DEJA un job aqui y el agente del portatil (que SI puede ssh->Pi) lo recoge.
+CRACK_JOB = BASE + "/crack.job"
 
 # ── Shell helpers ────────────────────────────────────────────────────────────
 
@@ -21,6 +26,17 @@ def safe_run(args: list, timeout: int = 10) -> bool:
         return True
     except Exception:
         return False
+
+def crack_gpu(bssid: str, ch: str):
+    """Encola un crack para la GPU del portatil (modelo pull). Deja un job file que el
+    crack-agent del portatil recoge por SSH, crackea y deja el resultado en WTRESULT
+    (que el panel ya muestra en vivo). bssid/ch ya validados. bssid vacio = mi AP."""
+    with open(CRACK_JOB, "w") as f:
+        f.write(f"bssid={bssid}\nch={ch}\n")
+    with open(WTRESULT, "w") as f:
+        f.write("🎮 Crack encolado — esperando al portatil (GPU RTX 3050)...\n"
+                "   el agente lo recoge en unos segundos.\n"
+                "   (si no responde, arrancalo: python3 /home/sj/crack-agent.py)")
 
 # ── Network / AP ─────────────────────────────────────────────────────────────
 
@@ -128,9 +144,86 @@ def mitm_ready():
 
 def mitm_attack_state():
     s = open(MITMSTATE).read().strip() if os.path.exists(MITMSTATE) else "idle"
-    if s == "running" and not sh("pgrep -f mitm-attack.sh"):
+    # el motor MITM-router usa los estados starting/associated/running; si no hay
+    # proceso vivo, lo damos por parado (evita estado fantasma tras un crash).
+    if s in ("running", "associated", "starting") and not sh("pgrep -f '[m]itm-router.sh'"):
         s = "stopped"
     return s
+
+# ── MITM contra router externo (motor mitm-router.sh) ────────────────────────
+
+def mitm_router_start():
+    """Lanza el motor (instancia unica garantizada por flock dentro del script)."""
+    sh(f"setsid nohup bash {MITMROUTER} >/tmp/mitm-router.log 2>&1 </dev/null &")
+
+def mitm_router_stop():
+    """Para el motor de forma ROBUSTA: TERM para cleanup ordenado; si no muere en 3s, KILL
+    (un motor colgado retiene el flock y bloquea relanzar = 'MITM no arranca'). Libera el
+    lock a mano + red de seguridad que restaura wlan1->monitor + kismet por si el KILL
+    saltó el trap cleanup del motor."""
+    sh("for p in $(pgrep -f '[m]itm-router.sh'); do kill -TERM $p; done")
+    sh("sleep 3; for p in $(pgrep -f '[m]itm-router.sh'); do kill -9 $p; done; "
+       "rm -f /tmp/mitm-router.lock")
+    sh("pkill -9 -x arpspoof 2>/dev/null; "
+       "for p in $(pgrep -f '[m]itm-sniff'); do kill -9 $p; done 2>/dev/null; "
+       "for p in $(pgrep -f 'tcpdump -i wlan1'); do kill -9 $p; done 2>/dev/null")
+    sh("ip rule del table 100 2>/dev/null; ip route flush table 100 2>/dev/null; "
+       "echo 1 > /proc/sys/net/ipv4/conf/wlan1/send_redirects 2>/dev/null")
+    # red de seguridad: si el KILL evitó el trap del motor, dejar wlan1 en monitor + kismet
+    sh("nmcli dev set wlan1 managed no 2>/dev/null; ip link set wlan1 down; "
+       "iw dev wlan1 set type monitor 2>/dev/null; ip link set wlan1 up; "
+       "systemctl start kismet-sensor.service")
+    for f in (MITMTARGET, MITMDEVICES, MITMINFO):
+        try: os.remove(f)
+        except OSError: pass
+    sh("echo stopped > " + MITMSTATE)
+
+def mitm_devices():
+    out = []
+    if not os.path.exists(MITMDEVICES):
+        return out
+    for l in open(MITMDEVICES, errors="replace"):
+        parts = l.rstrip("\n").split("|")
+        if len(parts) >= 4 and re.match(r"^\d{1,3}(\.\d{1,3}){3}$", parts[0]):
+            out.append({"ip": parts[0], "mac": parts[1],
+                        "vendor": parts[2], "host": parts[3]})
+    return out
+
+def mitm_info():
+    d = {}
+    if os.path.exists(MITMINFO):
+        for l in open(MITMINFO):
+            if "=" in l:
+                k, v = l.strip().split("=", 1)
+                d[k] = v
+    return d
+
+def mitm_target_ip():
+    return open(MITMTARGET).read().strip() if os.path.exists(MITMTARGET) else ""
+
+def mitm_set_target(ip: str):
+    # ip ya validada por el caller
+    with open(MITMTARGET, "w") as f:
+        f.write(ip + "\n")
+
+def mitm_audit(ip: str, action: str):
+    """nmap dirigido sobre el device target. ip validada (regex), action de set fijo."""
+    cmds = {
+        "ports":    f"nmap -F -T4 -e wlan1 {ip}",
+        "os":       f"nmap -O --osscan-guess -T4 -e wlan1 {ip}",
+        "services": f"nmap -sV -T4 --top-ports 50 -e wlan1 {ip}",
+    }
+    cmd = cmds.get(action)
+    if not cmd:
+        return
+    with open(MITMAUDIT, "w") as f:
+        f.write(f"# nmap {action} sobre {ip} (~10-40s)...\n")
+    sh(f"nohup bash -c '{cmd} > {MITMAUDIT} 2>&1' >/dev/null 2>&1 &")
+
+def mitm_audit_result():
+    if not os.path.exists(MITMAUDIT):
+        return ""
+    return open(MITMAUDIT, errors="replace").read().strip()[-2500:]
 
 def portal_on_state():
     cfg = open(DNSCFG).read() if os.path.exists(DNSCFG) else ""
@@ -362,6 +455,10 @@ def api_live():
         "wt_result": wifitest_result(),
         "mitm_state":mitm_attack_state(),
         "mitm_ready":mr,
+        "mitm_devices": mitm_devices(),
+        "mitm_info":    mitm_info(),
+        "mitm_target":  mitm_target_ip(),
+        "mitm_audit":   mitm_audit_result(),
         "clients":   len(cl),
         "clients_data": cl_data,
         "creds":     len(creds()),

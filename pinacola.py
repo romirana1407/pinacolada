@@ -1,11 +1,12 @@
 """Piña Colada — entry point and HTTP handler."""
-import http.server, hashlib, hmac, secrets, os, json, re, shlex, urllib.parse
+import http.server, hashlib, secrets, os, json, re, shlex, urllib.parse
 from config import *
 from engine import (
     sh, ap_start, portal_on, portal_off, set_eviltwin, set_normal_ap,
     deauth, recon_scan, ble_scan_start, beacon_spam_active,
     save_portal_html, delete_portal_file, activate_portal_file,
-    read_portal_html, api_live,
+    read_portal_html, api_live, crack_gpu,
+    mitm_router_start, mitm_router_stop, mitm_set_target, mitm_audit,
 )
 from ui import render, MANIFEST
 
@@ -31,7 +32,7 @@ def _check_auth(headers) -> bool:
         raw = base64.b64decode(auth[6:]).decode("utf-8", "replace")
         _, pwd = raw.split(":", 1)
         stored = open(AUTH_FILE).read().strip()
-        return hmac.compare_digest(hashlib.sha256(pwd.encode()).hexdigest(), stored)
+        return hashlib.sha256(pwd.encode()).hexdigest() == stored
     except Exception:
         return False
 
@@ -49,14 +50,6 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
         return False
-
-    def _same_origin(self) -> bool:
-        """CSRF guard: a state-changing POST must come from our own page.
-        Verified by Origin (preferred) or Referer host matching the Host header —
-        a cross-site form/fetch carries the attacker's origin and is rejected."""
-        host = self.headers.get("Host", "")
-        src = self.headers.get("Origin") or self.headers.get("Referer") or ""
-        return bool(host) and urllib.parse.urlsplit(src).netloc == host
 
     def _send(self, body: bytes, ct: str = "text/html; charset=utf-8", code: int = 200):
         self.send_response(code)
@@ -77,9 +70,8 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == "/manifest.webmanifest":
             self._send(MANIFEST.encode(), "application/manifest+json")
         elif p == "/logo.png" or (p.startswith("/icon-") and p.endswith(".png")):
-            fname = os.path.basename(p)  # strip any traversal; serve only from BASE
             try:
-                body = open(os.path.join(BASE, fname), "rb").read()
+                body = open(BASE + p, "rb").read()
             except Exception:
                 body = b""
             self._send(body, "image/png")
@@ -99,13 +91,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._auth():
             return
-        if not self._same_origin():
-            self._send(b"", "text/plain", 403)
-            return
-        try:
-            n = int(self.headers.get("Content-Length", "0") or 0)
-        except ValueError:
-            n = 0
+        n = int(self.headers.get("Content-Length", "0") or 0)
         body = self.rfile.read(n).decode("utf-8", "replace") if n else ""
         q = urllib.parse.parse_qs(body)
         p = self.path
@@ -166,18 +152,43 @@ class H(http.server.BaseHTTPRequestHandler):
                 ch = ""
             sh(f"nohup bash /opt/pinacola/wifitest.sh {shlex.quote(bssid)} "
                f"{shlex.quote(ch)} >/dev/null 2>&1 &")
+        elif p == "/crack_gpu":
+            # Captura + crack en la GPU del portatil (via crack-agent). Misma
+            # validacion que /wifitest. bssid vacio = mi AP (lo resuelve el agente).
+            bssid = q.get("bssid", [""])[0].strip()
+            ch = q.get("ch", [""])[0].strip()
+            if bssid and not re.match(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$", bssid):
+                bssid = ""
+            if ch and (not ch.isdigit() or not (1 <= int(ch) <= 13)):
+                ch = ""
+            crack_gpu(bssid, ch)
 
-        # ── Attack / MITM ──
+        # ── Attack / MITM contra router externo ──
         elif p == "/mitmattack":
-            sh(f"nohup bash {shlex.quote(MITMATTACK)} >/dev/null 2>&1 &")
+            # Target manual opcional: si llegan bssid+key validos, se escribe
+            # mitm-ready antes de lanzar (SSID/canal los auto-resuelve el motor).
+            bssid = q.get("bssid", [""])[0].strip()
+            key = q.get("key", [""])[0].replace("\n", "").replace("\r", "")[:63]
+            if re.match(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$", bssid) and len(key) >= 8:
+                with open(MITMREADY, "w") as f:
+                    f.write(f"BSSID={bssid.upper()}\nKEY={key}\nSSID=\nCHANNEL=\n")
+            mitm_router_start()
+        elif p == "/mitm_target":
+            # seleccionar el device a envenenar (ARP-spoof dirigido). IP validada.
+            ip = q.get("ip", [""])[0].strip()
+            if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", ip):
+                mitm_set_target(ip)
+        elif p == "/mitm_audit":
+            ip = q.get("ip", [""])[0].strip()
+            action = q.get("action", [""])[0].strip()
+            if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", ip) and action in ("ports", "os", "services"):
+                mitm_audit(ip, action)
         elif p == "/mitmattack_stop":
-            sh("pkill -TERM -f mitm-attack.sh; pkill -f arpspoof; "
-               "pkill -f 'tshark.*wlan1'")
+            mitm_router_stop()
         elif p == "/deauth":
             bssid = q.get("bssid", [""])[0]
             ch = q.get("ch", [DEF_CH])[0]
-            if (re.match(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$", bssid)
-                    and ch.isdigit() and 1 <= int(ch) <= 13):
+            if re.match(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$", bssid) and ch.isdigit():
                 deauth(bssid, ch)
 
         # ── BLE / Beacon ──

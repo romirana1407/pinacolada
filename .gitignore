@@ -19,3 +19,13 @@ wifitest.result
 *.pcapng
 *.hash
 .env
+# captured handshakes / runtime sniff data — NEVER publish
+captures/
+*.hc22000
+*.meta
+mitm-devices.txt
+mitm-info
+mitm-feed.log
+dns-feed.log
+*.state
+.active-name

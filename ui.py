@@ -216,25 +216,40 @@ function renderPortalCreds(creds){
   el.innerHTML=h;
 }
 
+function devRow(dv,gw,target){
+  var isgw=dv.ip===gw, istgt=dv.ip===target;
+  var tag=isgw?' <span class="muted">(gateway)</span>':(istgt?' <span class="pill pon">&#x25cf;</span>':'');
+  var btn=isgw?'<span class="muted">&mdash;</span>'
+    :'<form method=POST action=/mitm_target style="display:inline;margin:0"><input type=hidden name=ip value="'+esc(dv.ip)+'"><button class="btn btn-sm '+(istgt?'btn-r':'btn-p')+'" type=submit>'+(istgt?'target':'&#127919;')+'</button></form>';
+  return'<tr><td class=mono>'+esc(dv.ip)+tag+'</td><td class=mono>'+esc(dv.mac)+'</td><td>'+esc(dv.vendor||'')+'</td><td>'+btn+'</td></tr>';
+}
 function mcard(d){
-  var r=d.mitm_ready;
-  if(d.mitm_state==='running'){
-    var ssid=r&&r.SSID?r.SSID:'?';
-    return'<div style="margin-bottom:10px">'+pill(true,'RUNNING','')+' &nbsp;<span class="muted">Kismet paused</span></div>'
-      +'<p style="margin-bottom:8px">Conectado a <b>'+esc(ssid)+'</b></p>'
-      +fl(d.mitm_feed,'no traffic yet...')
+  var r=d.mitm_ready,st=d.mitm_state,info=d.mitm_info||{},devs=d.mitm_devices||[],tgt=d.mitm_target||'';
+  if(st==='associated'||st==='running'){
+    var head=(st==='running'?pill(true,'MITM &rarr; '+esc(tgt),''):pill(true,'ASSOCIATED',''))+' &nbsp;<span class=muted>Kismet paused</span>';
+    var inf='<p style="margin:6px 0">Router <b>'+esc(info.SSID||'?')+'</b> &middot; Pi '+esc(info.IP||'')+' &middot; gw '+esc(info.GW||'')+'</p>';
+    var tbl=devs.length?'<table><thead><tr><th>IP</th><th>MAC</th><th>Fabricante</th><th></th></tr></thead><tbody>'+devs.map(function(dv){return devRow(dv,info.GW||'',tgt);}).join('')+'</tbody></table>':'<p class=muted>Descubriendo dispositivos...</p>';
+    var extra='';
+    if(st==='running'&&tgt){
+      var mfeed=(d.mitm_feed||[]).filter(function(x){return x.indexOf(tgt)>=0;});
+      extra='<div style="margin-top:12px"><b>&#128065; Monitoreo en vivo de '+esc(tgt)+'</b>'
+        +'<div style="max-height:180px;overflow:auto;margin-top:4px">'+fl(mfeed,'esperando tráfico del target (navega en el device)...')+'</div></div>'
+        +'<div style="margin-top:12px"><b>&#128269; Auditar '+esc(tgt)+':</b> '
+        +['ports','os','services'].map(function(a){return'<form method=POST action=/mitm_audit style="display:inline;margin:0 2px"><input type=hidden name=ip value="'+esc(tgt)+'"><input type=hidden name=action value="'+a+'"><button class="btn btn-sm btn-p" type=submit>'+a+'</button></form>';}).join('')
+        +'</div>'+(d.mitm_audit?'<pre style="white-space:pre-wrap;font-size:11px;color:#3fb950;max-height:220px;overflow:auto;margin-top:6px">'+esc(d.mitm_audit)+'</pre>':'');
+    }
+    return'<div style="margin-bottom:8px">'+head+'</div>'+inf+tbl+extra
       +'<form method="POST" action="/mitmattack_stop" style="margin-top:10px"><button class="btn btn-r">Stop MITM</button></form>';
   }
-  if(d.mitm_state==='starting')
-    return'<p><span class="pill pwarn">&#x25cf; connecting...</span></p><form method="POST" action="/mitmattack_stop"><button class="btn btn-r">Cancel</button></form>';
+  if(st==='starting')
+    return'<p><span class="pill pwarn">&#x25cf; asociando al router...</span></p><form method="POST" action="/mitmattack_stop"><button class="btn btn-r">Cancel</button></form>';
   if(r&&r.KEY){
-    return'<table style="margin-bottom:12px"><tr><th>SSID</th><td>'+esc(r.SSID||'?')+'</td></tr>'
-      +'<tr><th>BSSID</th><td class="muted mono">'+esc(r.BSSID||'')+'</td></tr>'
+    return'<table style="margin-bottom:12px"><tr><th>BSSID</th><td class="muted mono">'+esc(r.BSSID||'')+'</td></tr>'
       +'<tr><th>Key</th><td style="color:#f5c542;font-family:monospace">'+esc(r.KEY)+'</td></tr></table>'
-      +'<form method="POST" action="/mitmattack"><button class="btn btn-r">&#9889; Launch MITM</button></form>'
-      +'<p class="muted" style="font-size:11px;margin-top:8px">Pauses Kismet. Authorized networks only.</p>';
+      +'<form method="POST" action="/mitmattack"><button class="btn btn-r">&#9889; Launch MITM (router)</button></form>'
+      +'<p class="muted" style="font-size:11px;margin-top:8px">Asocia la Pi al router, descubre devices, ARP-spoof dirigido al que elijas. Pausa Kismet. Solo redes propias.</p>';
   }
-  return'<p class="muted">Run the WiFi test (Recon tab). Button appears here after cracking the password.</p>';
+  return'<p class="muted">Mete BSSID+Key del router abajo y pulsa Launch (o crackéalo en Recon).</p>';
 }
 
 function clientsTable(cl){
@@ -456,7 +471,11 @@ def render(klink):
         '<div><label>BSSID (empty = my AP)</label><input type=text id=wt-bssid name=bssid placeholder="empty = your AP" size=18></div>'
         '<div><label>Channel</label><input type=text id=wt-ch name=ch placeholder=auto size=4></div>'
         '</div><button class="btn btn-p">Run Test</button>'
-        '<span class=muted style="font-size:11px;margin-left:8px">Authorized networks only. Pauses Kismet ~45s.</span>'
+        '<button class="btn btn-p" formaction=/crack_gpu '
+        'style="margin-left:8px;background:#8957e5;border-color:#8957e5" '
+        'title="Captura + crackea en la GPU del portatil (RTX 3050)">'
+        '&#127918; Crack en GPU</button>'
+        '<span class=muted style="font-size:11px;margin-left:8px">Authorized networks only. &#127918; usa la GPU del portatil.</span>'
         '</form></div>')
     p.append('<div class=grid-2>'
         '<div class=card><div class=card-h>WiFi Scan <span class=muted style="text-transform:none;font-weight:400;font-size:12px">(airodump-ng 15s)</span></div>'
@@ -545,6 +564,12 @@ def render(klink):
         '<span class=muted style="text-transform:none;font-weight:400;font-size:12px">'
         'test &rarr; crack &rarr; connect &rarr; ARP spoof &rarr; DNS/SNI</span></div>'
         '<div id=mitm-inner>'+mrac+'</div></div>')
+    p.append('<div class=card><div class=card-h>MITM Target (manual)</div>'
+        '<form method=POST action=/mitmattack><div class=form-row>'
+        '<div><label>BSSID</label><input type=text name=bssid placeholder="AA:BB:CC:DD:EE:FF" size=18></div>'
+        '<div><label>Key (WPA)</label><input type=text name=key placeholder="passphrase" size=20></div>'
+        '</div><button class="btn btn-r">&#9889; Launch MITM</button>'
+        '<span class=muted style="font-size:11px;margin-left:8px">SSID y canal se auto-detectan. Authorized networks only.</span></form></div>')
     p.append('<div class=card><div class=card-h>MITM Monitor &middot; Live HTTPS / SNI</div>'
         '<div id=mitm-feed>'+hfl(mf,'no HTTPS yet')+'</div></div>')
     p.append('<div class=card><div class=card-h>Deauth</div>'
