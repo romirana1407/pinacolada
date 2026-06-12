@@ -81,9 +81,22 @@ The installer sets up a systemd service (`pinacola`) that starts automatically o
 sudo apt update
 sudo apt install -y \
   aircrack-ng hcxdumptool hcxtools hashcat mdk4 \
-  kismet hostapd dnsmasq python3 \
+  hostapd dnsmasq python3 wget gnupg ca-certificates \
   iw iptables tcpdump tshark dsniff
 pip install bleak  # optional — richer BLE data (RSSI, manufacturer)
+```
+
+**Kismet** (the IDS / defensive tab) ships in Kali's base repos but not in Debian/Ubuntu's.
+On Kali: `sudo apt install -y kismet`. On Debian/Ubuntu, add the official Kismet repo first
+(the `install.sh` quick-install does this for you automatically):
+
+```bash
+wget -qO- https://www.kismetwireless.net/repos/kismet-release.gpg.key \
+  | gpg --dearmor | sudo tee /usr/share/keyrings/kismet-archive-keyring.gpg >/dev/null
+. /etc/os-release
+echo "deb [signed-by=/usr/share/keyrings/kismet-archive-keyring.gpg] https://www.kismetwireless.net/repos/apt/release/$VERSION_CODENAME $VERSION_CODENAME main" \
+  | sudo tee /etc/apt/sources.list.d/kismet.list
+sudo apt update && sudo apt install -y kismet
 ```
 
 ### 2. Copy files

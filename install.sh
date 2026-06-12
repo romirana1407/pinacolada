@@ -48,11 +48,28 @@ apt-get install -y --no-install-recommends \
   iptables \
   tcpdump \
   tshark \
-  dsniff 2>&1 | grep -E "^(Get|Setting|Unpacking|Selecting)" || true
+  dsniff \
+  wget \
+  ca-certificates \
+  gnupg 2>&1 | grep -E "^(Get|Setting|Unpacking|Selecting)" || true
 
-# Kismet is optional (IDS tab) — don't fail if unavailable
-apt-get install -y --no-install-recommends kismet 2>/dev/null \
-  && info "Kismet installed" \
+# Kismet (IDS / defensive tab). Kali ships it in the base repos; Debian/Ubuntu
+# don't, so if it's missing add the official Kismet apt repo and retry.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends kismet 2>/dev/null || true
+if ! command -v kismet >/dev/null 2>&1; then
+  CODENAME=$( . /etc/os-release 2>/dev/null; echo "$VERSION_CODENAME" )
+  if [ -n "$CODENAME" ] && command -v wget >/dev/null 2>&1 && command -v gpg >/dev/null 2>&1; then
+    info "Kismet not in base repos — adding the official Kismet repo for ${CODENAME}..."
+    wget -qO- https://www.kismetwireless.net/repos/kismet-release.gpg.key \
+      | gpg --dearmor | tee /usr/share/keyrings/kismet-archive-keyring.gpg >/dev/null 2>&1
+    echo "deb [signed-by=/usr/share/keyrings/kismet-archive-keyring.gpg] https://www.kismetwireless.net/repos/apt/release/${CODENAME} ${CODENAME} main" \
+      > /etc/apt/sources.list.d/kismet.list
+    apt-get update -qq 2>/dev/null || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends kismet 2>/dev/null || true
+  fi
+fi
+command -v kismet >/dev/null 2>&1 \
+  && info "Kismet installed ($(kismet --version 2>/dev/null | head -1))" \
   || warn "Kismet not available — IDS tab will be limited"
 
 # bleak for BLE (optional)
